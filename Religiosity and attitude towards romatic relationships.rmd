@@ -1,0 +1,585 @@
+---
+title: "Religijność a postawy wobec związków romantycznych"
+output: html_document
+date: "2026-01-09"
+---
+
+Import danych z ESS
+```{r}
+library(tidyverse)
+library(rio)
+
+ess_data <- import("ESS9e03_2.sav")
+
+df_religious <- ess_data %>%
+  filter(cntry %in% c("PL", "CZ")) %>%
+  select(alvgptn, acldnmr, iagmr, idno, cntry, rlgdgr, rlgatnd, pray, gndr, agea) 
+
+```
+ 
+Zmiana nazw kolumn i ich kolejności
+```{r}
+df_religious <- df_religious %>%
+  rename( 
+  panstwo= cntry,
+  jak_religijny= rlgdgr,
+  jak_czesto_kosciol= rlgatnd,
+  plec= gndr,
+  wiek= agea,
+  jak_czesto_modlitwa= pray,
+  aprobata_kohabitacja= alvgptn,
+  aprobata_dziecko_nieslubne =acldnmr,
+  ideal_wiek_malzenstwo= iagmr,
+  id = idno
+  )
+
+df_religious <- df_religious[, c("id", "panstwo","plec", "wiek", "jak_religijny", "jak_czesto_kosciol",
+                                 "jak_czesto_modlitwa","aprobata_kohabitacja",  "aprobata_dziecko_nieslubne",
+                                 "ideal_wiek_malzenstwo" )]
+df_religious
+```
+ 
+Sprawdzenie braków danych
+```{r}
+#wszystkie braki danych to czechy 
+df_religious %>% 
+  filter(panstwo == "CZ" ) %>%
+{colSums(is.na(.))}
+
+```
+
+
+```{r}
+df_religious %>% 
+  filter(panstwo == "PL" ) %>%
+  {colSums(is.na(.))}
+```
+Usunięcie braków
+```{r}
+df_religious <- na.omit(df_religious)
+```
+
+```{r}
+table(df_religious$aprobata_kohabitacja)
+```
+```{r}
+table(df_religious$aprobata_dziecko_nieslubne)
+```
+Kody specjalne - idealny wiek zawarcia małżeństwa:
+0 - Brak idealnego wieku
+111 - Nigdy nie powinien/powinna brać ślubu
+777 -	Odmowa
+888 -	"Nie wiem"
+999 -	Brak odpowiedzi
+```{r}
+table(df_religious$ideal_wiek_malzenstwo)
+```
+```{r}
+df_religious <- df_religious %>%
+  mutate(ideal_wiek_malzenstwo = na_if(ideal_wiek_malzenstwo, 0)) %>%
+  mutate(ideal_wiek_malzenstwo = na_if(ideal_wiek_malzenstwo, 111)) %>%
+  mutate(ideal_wiek_malzenstwo = na_if(ideal_wiek_malzenstwo, 777)) %>%
+  mutate(ideal_wiek_malzenstwo = na_if(ideal_wiek_malzenstwo, 888)) 
+```
+```{r}
+df_religious <- df_religious %>% drop_na(ideal_wiek_malzenstwo)
+
+table(df_religious$jak_religijny)
+```
+```{r}
+table(df_religious$jak_czesto_modlitwa)
+```
+
+```{r}
+table(df_religious$jak_czesto_kosciol)
+```
+Rozkład państw
+```{r}
+table(df_religious$panstwo)
+```
+
+Indeks religijności - średnia zmiennych:
+- deklarowana religijność (0 - niereligijny, 10 - bardzo religijny)
+- REKODOWANE jak często respondent się modli (1 -codziennie, 7 - nigdy)
+- REKODOWANE jak często respondent chodzi do kościoła (1 -codziennie, 7 - nigdy)
+```{r}
+recode_scale <- function(x) {
+    x_reversed <- 8 - x 
+   # Wzór: (x - min) / (max - min) * 10
+  x_scaled <- ((x_reversed - 1) / (7 - 1)) * 10
+  return(x_scaled)
+}
+
+recode_scale 
+
+df_religious <- df_religious %>%
+  mutate(
+    jak_czesto_kosciol_rekod = recode_scale(jak_czesto_kosciol),
+    jak_czesto_modlitwa_rekod = recode_scale(jak_czesto_modlitwa)
+  )
+
+df_religious
+```
+
+Konstrukcja indeksu religijności, tworzenie zmiennych: płeć, grupa wiekowa
+```{r}
+df_religious <- df_religious %>%
+  mutate(
+    indeks_religijnosci = ( jak_religijny + jak_czesto_kosciol_rekod + jak_czesto_modlitwa_rekod) / 3,
+    Płeć = factor(plec, levels = c(1, 2), labels = c("Mężczyzna", "Kobieta")),
+    Grupa_Wiekowa = case_when(
+      wiek < 30 ~ "15-29 lat",
+      wiek < 50 ~ "30-49 lat",
+      wiek >= 50 ~ "50+ lat"
+    )
+  ) %>%
+  drop_na(Płeć, Grupa_Wiekowa)
+```
+
+
+```{r}
+df_pl <- df_religious %>% filter(panstwo == "PL") %>% select(panstwo, indeks_religijnosci, aprobata_kohabitacja, aprobata_dziecko_nieslubne, ideal_wiek_malzenstwo, wiek, Płeć, Grupa_Wiekowa)
+df_pl
+```
+
+```{r}
+df_cz <- df_religious %>% filter(panstwo == "CZ") %>% select(panstwo, indeks_religijnosci, aprobata_kohabitacja, aprobata_dziecko_nieslubne, ideal_wiek_malzenstwo, wiek, Płeć, Grupa_Wiekowa)
+df_cz
+```
+
+```{r}
+ggplot(df_cz, aes(indeks_religijnosci)) +
+  geom_density( fill = "mediumturquoise", alpha = 0.6, color = NA) +
+  labs(
+    x = "Indeks religijności",
+    y = "Proporcja resondentów"
+  ) +
+  ggtitle("Indeks religijności w Czechach")
+```
+```{r}
+ggplot(df_pl, aes(indeks_religijnosci)) +
+  geom_density(fill = "coral1", alpha = 0.6, color = NA) +
+  labs(
+    x = "Indeks religijności",
+    y = "Proporcja respondentów"
+  ) +
+  ggtitle("Indeks religijności w Polsce")
+```
+
+```{r}
+
+ggplot(df_cz, aes(x = wiek, y = indeks_religijnosci)) +
+  geom_smooth(color = "mediumturquoise", fill = "mediumturquoise", alpha = 0.3) +
+  labs(x="Wiek", y ="Indeks religijności")+
+  ggtitle("Czechy: Religijność a wiek")
+```
+```{r}
+ggplot(df_pl, aes(x = wiek, y = indeks_religijnosci)) +
+  geom_smooth(color = "coral1", fill = "coral1", alpha = 0.3) +
+  labs(x="Wiek", y ="Indeks religijności")+
+  ggtitle("Polska: Religijność a wiek")
+```
+
+
+
+```{r}
+ggplot(df_cz, aes(x = factor(aprobata_kohabitacja), y = indeks_religijnosci)) +
+  geom_boxplot(fill = "mediumturquoise") +
+  labs(
+    x = "Aprobata kohabitacji",
+    y = "Indeks religijności"
+    
+  )+
+  ggtitle("Czechy: religijność a aprobata kohabitacji")
+```
+```{r}
+ggplot(df_pl, aes(x = factor(aprobata_kohabitacja), y = indeks_religijnosci)) +
+  geom_boxplot(fill = 'coral1') +
+  labs(
+    x = "Aprobata kohabitacji",
+    y = "Indeks religijności"
+  ) +
+  ggtitle("Polska: Religijność a aprobata kohabitacji")
+```
+
+```{r}
+ggplot(df_cz, aes(x = factor(aprobata_dziecko_nieslubne), y = indeks_religijnosci)) +
+  geom_boxplot(fill = "mediumturquoise") +
+  labs(
+    x = "Aprobata nieślubnego dziecka",
+    y = "Indeks religijności"
+  )+
+  ggtitle("Czechy: Religijność a aprobata nieślubnego dziecka")
+```
+```{r}
+ggplot(df_pl, aes(x = factor(aprobata_dziecko_nieslubne), y = indeks_religijnosci)) +
+  geom_boxplot(fill = 'coral1') +
+  labs(
+    x = "Aprobata nieślubnego dziecka",
+    y = "Indeks religijności"
+  ) +
+  ggtitle("Polska: Religijność a aprobata nieślubnego dziecka")
+```
+
+```{r}
+df_cz_filtered <- df_cz %>% filter(ideal_wiek_malzenstwo != 0 & ideal_wiek_malzenstwo<36)
+
+ggplot(data = df_cz, aes(ideal_wiek_malzenstwo)) +
+  geom_density(fill = "mediumturquoise", alpha = 0.6, color = NA) +
+  labs(
+    x = "Idealny wiek zawarcia małżeństwa",
+    y= "Proporcja respondentów") +
+  ggtitle("Czechy: Idealny wiek zawarcia małżeństwa")
+```
+
+
+
+```{r}
+df_pl%>% 
+  ggplot(aes(ideal_wiek_malzenstwo)) +
+  geom_density(fill = 'coral1', alpha = 0.6, color = NA) +
+  labs(
+    x = "Wiek",
+    y = "Proporcja respondentów"
+  ) +
+  ggtitle("Polska: Idealny wiek zawarcia małżeństwa")
+```
+
+Podział religijności na kwantyle
+```{r}
+q <- quantile(df_cz$indeks_religijnosci,
+              probs = c(0, 1/5, 2/5, 3/5, 4/5, 1),
+              na.rm = TRUE)
+
+df_cz <- df_cz %>%
+  mutate(
+    poziom_religijnosci = case_when(
+      indeks_religijnosci <= q[2] ~ "BARDZO NISKI",
+      indeks_religijnosci <= q[3] ~ "NISKI",
+      indeks_religijnosci <= q[4] ~ "SREDNI",
+      indeks_religijnosci <= q[5] ~ "WYSOKI",
+      indeks_religijnosci >  q[5] ~ "BARDZO WYSOKI"
+    )
+  )
+
+
+df_cz <- df_cz %>% mutate(poziom_religijnosci =factor(poziom_religijnosci, levels = c("BARDZO NISKI", "NISKI", "SREDNI", "WYSOKI", "BARDZO WYSOKI")))
+
+```
+
+
+
+```{r}
+ggplot(data = df_cz, aes(x=poziom_religijnosci, y=ideal_wiek_malzenstwo)) +
+  geom_boxplot(fill = "mediumturquoise") +
+  labs(
+    x = "Poziom religijności",
+    y= "Idealny wiek zawarcia małżeństwa") +ggtitle("Czechy: Religijność a idealny wiek zawarcia małżeństwa")
+```
+```{r}
+result = kruskal.test(ideal_wiek_malzenstwo ~ poziom_religijnosci,data = df_cz)
+print(result)
+```
+Test Kruskala Wallisa, poprzez wskazanie bardzop niskiej wartości p-value (3.945e-07) , wykazuje, że istnieje istotna statystycznie różnica między grupami reprezentującymi różne poziomy religijności. Jednak jego celem nie jest określenie jak silna jest to różnica. Aby przyjrzeć się bliżej temu zagadnieniu, używamy Epsilon kwadrat (η²).
+
+```{r}
+H <- result$statistic
+n <- nrow(df_cz)
+k <- length(unique(df_cz$poziom_religijnosci))
+
+epsilon2 <- (H - k + 1) / (n - k)
+epsilon2
+
+```
+Interpretacja epsilon kwadrat:
+~0.01 = Niska zależność
+~0.06 = Średnia zależność
+~0.14+ = Duża zależność
+
+Jak możemy zaobserwować, wynik ~0.02 najlepiej wpisuje się w kategorię "Niska zależność". 
+
+Wyniki testów są zgodne z obserwacjami na wykresie - możemy zaobserwować różnice w deklarowanym idealnym wieku zawarcia małżeństwa między grupami o różnym poziomie religijności, jednak są to małe różnice. Ze względu na to, że próba jest duża, to są one istotne statystycznie, ale nieistotne merytorycznie.
+
+```{r}
+q <- quantile(
+  df_pl_filtered$indeks_religijnosci,
+  probs = c(0, 1/5, 2/5, 3/5, 4/5, 1),
+  na.rm = TRUE
+)
+
+df_pl <- df_pl%>%
+  mutate(
+    poziom_religijnosci = case_when(
+      indeks_religijnosci <= q[2] ~ "BARDZO NISKI",
+      indeks_religijnosci <= q[3] ~ "NISKI",
+      indeks_religijnosci <= q[4] ~ "SREDNI",
+      indeks_religijnosci <= q[5] ~ "WYSOKI",
+      indeks_religijnosci >  q[5] ~ "BARDZO WYSOKI"
+    ),
+    poziom_religijnosci = factor(
+      poziom_religijnosci,
+      levels = c("BARDZO NISKI", "NISKI", "ŚREDNI", "WYSOKI", "BARDZO WYSOKI")
+    )
+  )
+
+ggplot(df_pl, aes(x = poziom_religijnosci, y = ideal_wiek_malzenstwo)) +
+  geom_boxplot(fill = "coral1") +
+  labs(
+    x = "Poziom religijności",
+    y = "Idealny wiek zawarcia małżeństwa"
+  ) +
+  ggtitle("Polska: Religijność a idealny wiek zawarcia małżeństwa")
+```
+```{r}
+result = kruskal.test(ideal_wiek_malzenstwo ~ poziom_religijnosci,data = df_pl)
+print(result)
+```
+```{r}
+H <- result$statistic
+n <- nrow(df_cz)
+k <- length(unique(df_cz$poziom_religijnosci))
+
+epsilon2 <- (H - k + 1) / (n - k)
+epsilon2
+
+```
+Dla danych z Polski sytuacja jest analogiczna, a epsilon kwadrat wykazuje jeszcze słabszą zależność. Znów dane są istotne statystycznie, ale nieistotne merytorycznie.
+
+```{r}
+religion_cohabitation_cz <- df_cz %>% select(Płeć,indeks_religijnosci, aprobata_kohabitacja ) 
+
+ggplot(df_cz, aes(x = factor(aprobata_kohabitacja), y = indeks_religijnosci, fill = Płeć)) +
+  geom_boxplot() +
+  labs(
+    title = "Czechy: Religijność a aprobata kohabitacji wg płci",
+    x = "Aprobata kohabitacji",
+    y = "Indeks religijności"
+  )
+
+```
+```{r}
+df_cz_sum <- df_cz %>% group_by(poziom_religijnosci) %>% summarise (srednia_aprobata = mean(aprobata_kohabitacja))
+
+ggplot(df_cz_sum, aes(y = srednia_aprobata, x = poziom_religijnosci)) +
+  geom_col(fill = "mediumturquoise") +
+  labs(
+    title = "Czechy: Religijność a aprobata kohabitacji",
+    y = "Średnia aprobata kohabitacji",
+    x = "Poziom religijności"
+  )
+
+```
+
+
+```{r}
+rel_coh_table_cz = table(df_cz$aprobata_kohabitacja,df_cz$poziom_religijnosci) 
+                
+print(rel_coh_table_cz)
+```
+
+```{r}
+print(chisq.test(rel_coh_table_cz))
+```
+Test Chi-kwadrat wykazuje, że istnieją istotne statystycznie różnice w aprobacie kohabitacji między grupami o różnym poziomie religijności
+```{r}
+library(rcompanion)
+
+cramerV(rel_coh_table_cz)
+```
+0 - 0.10	bardzo słaby
+0.10–0.20	słaby
+0.20–0.40	umiarkowany
+0.40 +	silny
+
+Miara V-Cramera pokazuje jednak, że zależność między zmiennymi jest słaba
+
+```{r}
+ggplot(df_pl, aes(x = factor(aprobata_kohabitacja), y = indeks_religijnosci, fill = Płeć)) +
+  geom_boxplot() +
+  labs(
+    title = "Polska: Religijność a aprobata kohabitacji wg płci",
+    x = "Aprobata kohabitacji",
+    y = "Indeks religijności"
+  )
+```
+```{r}
+df_pl_sum <- df_pl %>% group_by(poziom_religijnosci) %>% summarise (srednia_aprobata = mean(aprobata_kohabitacja))
+
+ggplot(df_pl_sum, aes(y = srednia_aprobata, x = poziom_religijnosci)) +
+  geom_col(fill = "coral1") +
+  labs(
+    title = "Polska: Religijność a aprobata kohabitacji",
+    y = "Średnia probata kohabitacji",
+    x = "Poziom religijności"
+  )
+
+```
+
+
+
+```{r}
+rel_coh_table_pl = table(df_pl$aprobata_kohabitacja,df_pl$poziom_religijnosci) 
+                
+print(rel_coh_table_pl)
+```
+
+```{r}
+print(chisq.test(rel_coh_table_pl))
+```
+Test Chi-kwadrat wykazuje, że istnieją istotne statystycznie różnice w aprobacie kohabitacji między grupami o różnym poziomie religijności
+```{r}
+library(rcompanion)
+
+cramerV(rel_coh_table_pl)
+```
+0-0.10	bardzo słaby
+0.10–0.20	słaby ← TU JESTEŚ
+0.20–0.40	umiarkowany
+0.40 +	silny
+
+Test V-Cramera pokazuje, że siłą zależności jest umiarkowana
+
+
+Eksport tabel krzyżowych
+```{r}
+library(sjPlot)
+
+tab_xtab(
+  df_cz$poziom_religijnosci,
+  df_cz$aprobata_kohabitacja,
+  show.row.prc = TRUE,
+  show.col.prc = FALSE,
+  show.summary = TRUE,
+   file = "tabela_religijnosc_kohabitacja_CZ.html"
+)
+
+
+tab_xtab(
+  df_pl$poziom_religijnosci,
+  df_pl$aprobata_kohabitacja,
+  show.row.prc = TRUE,
+  show.col.prc = FALSE,
+  show.summary = TRUE,
+   file = "tabela_religijnosc_kohabitacja_PL.html"
+)
+```
+
+```{r}
+df_cz_sum <- df_cz %>% group_by(poziom_religijnosci) %>% summarise (srednia_aprobata = mean(aprobata_dziecko_nieslubne))
+
+ggplot(df_cz_sum, aes(y = srednia_aprobata, x = poziom_religijnosci)) +
+  geom_col(fill = "mediumturquoise") +
+  labs(
+    title = "Czechy: Religijność a aprobata nieślubnego dziecka",
+    y = "Średnia aprobata nieslubnego dziecka",
+    x = "Poziom religijności"
+  )
+
+```
+
+```{r}
+rel_child_table_cz = table(df_cz$aprobata_dziecko_nieslubne,df_cz$poziom_religijnosci) 
+                
+print(rel_child_table_cz)
+```
+```{r}
+print(chisq.test(rel_child_table_cz))
+```
+Test Chi-kwadrat wykazuje, że istnieją istotne statystycznie różnice w aprobacie posiadania nieślubnego dziecka między grupami o różnym poziomie religijności
+```{r}
+library(rcompanion)
+
+cramerV(rel_child_table_cz)
+```
+0-0.10	bardzo słaby
+0.10–0.20	słaby 
+0.20–0.40	umiarkowany
+0.40 +	silny
+
+Miara V-Cramera pokazuje, że zależność jest bardzo słaba
+
+```{r}
+df_pl_sum <- df_pl %>% group_by(poziom_religijnosci) %>% summarise (srednia_aprobata = mean(aprobata_dziecko_nieslubne))
+
+ggplot(df_pl_sum, aes(y = srednia_aprobata, x = poziom_religijnosci)) +
+  geom_col(fill = "coral1") +
+  labs(
+    title = "Polska: Religijność a aprobata nieślubnego dziecka",
+    y = "Średnia aprobata nieslubnego dziecka",
+    x = "Poziom religijności"
+  )
+```
+
+
+
+```{r}
+rel_child_table_pl = table(df_pl$aprobata_dziecko_nieslubne,df_pl$poziom_religijnosci) 
+                
+print(rel_child_table_pl)
+```
+
+
+
+```{r}
+print(chisq.test(rel_child_table_pl))
+```
+Test Chi-kwadrat wykazuje, że istnieją istotne statystycznie różnice w aprobacie posiadania nieślubnego dziecka między grupami o różnym poziomie religijności
+```{r}
+library(rcompanion)
+
+cramerV(rel_child_table_pl)
+```
+0-0.10	bardzo słaby
+0.10–0.20	słaby ← TU JESTEŚ
+0.20–0.40	umiarkowany
+0.40 +	silny
+
+Test V-Cramera pokazuje, że siła zależności jest umiarkowana
+
+```{r}
+ggplot(df_cz, aes(x = factor(aprobata_dziecko_nieslubne), y = indeks_religijnosci, fill = Płeć)) +
+  geom_boxplot(position = "dodge") +
+  labs(
+    x = "Aprobata nieślubnego dziecka",
+    y = "Indeks religijności",
+    fill = "Płeć"
+  ) +
+   ggtitle("Czechy: Religijność a aprobata nieślubnego dziecka wg płci")
+
+```
+```{r}
+ggplot(df_pl, aes(x = factor(aprobata_dziecko_nieslubne), y = indeks_religijnosci, fill = Płeć)) +
+  geom_boxplot(position = "dodge") +
+  labs(
+    x = "Aprobata nieślubnego dziecka",
+    y = "Indeks religijności",
+    fill = "Płeć"
+  ) +
+   ggtitle("Polska: Religijność a aprobata nieślubnego dziecka wg płci")
+```
+```{r}
+ggplot(df_cz, aes(x = factor(poziom_religijnosci), y = ideal_wiek_malzenstwo, fill = Płeć)) +
+  geom_boxplot(position = "dodge") +
+  labs(
+    x = "Poziom religijności",
+    y = "Wiek",
+    fill = "Płeć"
+  ) +
+  ggtitle("Czechy: Religijność a idealny wiek zawarcia małżeństwa")
+```
+```{r}
+ggplot(df_pl, aes(x = factor(poziom_religijnosci), y = ideal_wiek_malzenstwo, fill = Płeć)) +
+  geom_boxplot(position = "dodge") +
+  labs(
+    x = "Poziom religijności",
+    y = "Wiek",
+    fill = "Płeć"
+  ) +
+  ggtitle("Polska: Religijność a idealny wiek zawarcia małżeństwa")
+```
+
+
+
+
+
+
